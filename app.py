@@ -95,10 +95,18 @@ with st.sidebar:
     st.metric(label="Total Dokumen Terdaftar", value=f"{len(file_pdf_list)} PDF")
     
     st.markdown("---")
-    st.markdown("### 📜 Daftar File Aktif:")
+    st.markdown("### 📜 Daftar File Aktif & Unduh:")
     if file_pdf_list:
         for f in file_pdf_list:
-            st.caption(f"• {f}")
+            path_f = os.path.join(FOLDER_PENYIMPANAN, f)
+            with open(path_f, "rb") as file_data:
+                st.download_button(
+                    label=f"📥 {f}",
+                    data=file_data,
+                    file_name=f,
+                    mime="application/pdf",
+                    key=f"sidebar_{f}"
+                )
     else:
         st.caption("Belum ada file PDF di repositori.")
 
@@ -171,6 +179,7 @@ else:
                         total_ditemukan += len(hasil_file)
                         semua_hasil.append({
                             "file": nama_file,
+                            "path": path_file,
                             "data": hasil_file
                         })
             
@@ -179,10 +188,21 @@ else:
                 
                 # Tampilkan hasil dalam Expander/Dropdown per dokumen
                 for item in semua_hasil:
-                    # Menggunakan st.expander supaya hasil per UU bisa ditutup/dibuka
                     with st.expander(f"📄 **{item['file']}** — (Ditemukan di {len(item['data'])} tempat)", expanded=True):
+                        
+                        # Tombol Unduh File PDF di Dalam Expander
+                        with open(item['path'], "rb") as pdf_file:
+                            st.download_button(
+                                label=f"📥 Unduh Dokumen Lengkap ({item['file']})",
+                                data=pdf_file,
+                                file_name=item['file'],
+                                mime="application/pdf",
+                                key=f"main_dl_{item['file']}"
+                            )
+                        
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        
                         for detail in item['data']:
-                            # Berikan highlight warna kuning pada kata kunci
                             konteks_highlight = berikan_highlight(detail['konteks'], kata_kunci)
                             
                             st.markdown(f"""
