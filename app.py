@@ -1,4 +1,5 @@
 import os
+import re
 import streamlit as st
 from pypdf import PdfReader
 
@@ -93,7 +94,7 @@ with st.sidebar:
     else:
         st.caption("Belum ada file PDF di repositori.")
 
-# Fungsi Pencarian dengan Pengecualian Teks Sambungan Pojok Kanan Bawah (...)
+# Fungsi Pencarian Ketat
 def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
     hasil = []
     try:
@@ -103,22 +104,25 @@ def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
             if not teks_halaman:
                 continue
                 
-            baris_list = teks_halaman.split('\n')
+            baris_list = [b.strip() for b in teks_halaman.split('\n') if b.strip()]
+            total_baris = len(baris_list)
             
             for idx, baris in enumerate(baris_list):
-                baris_bersih = baris.strip()
-                
-                # Cek apakah kata kunci ada di baris ini
-                if kata_kunci.lower() in baris_bersih.lower():
-                    # 🔍 PENGECUALIAN:
-                    # Jika baris tersebut diakhiri dengan titik-titik ("..." atau "..")
-                    # seperti indikator sambungan di pojok kanan bawah, maka DIABAIKAN!
-                    if baris_bersih.endswith("...") or baris_bersih.endswith("..") or baris_bersih.endswith(". . ."):
+                if kata_kunci.lower() in baris.lower():
+                    # 🔍 DETEKSI SAMBUNGAN POJOK KANAN BAWAH:
+                    # 1. Menggunakan Regex untuk mengecek apakah baris diakhiri titik-titik (misal: "...", "..", ". . .")
+                    is_pemberitahuan_sambungan = bool(re.search(r'(\.|\s){2,}$', baris))
+                    
+                    # 2. Cek apakah posisi baris ini ada di 3 baris paling bawah halaman
+                    is_posisi_bawah = (idx >= total_baris - 3)
+                    
+                    # Jika diakhiri titik-titik ATAU ada di posisi paling bawah dengan titik-titik, LEWATI!
+                    if is_pemberitahuan_sambungan or (is_posisi_bawah and "." in baris[-5:]):
                         continue
                     
                     awal = max(0, idx - window)
-                    akhir = min(len(baris_list), idx + window + 1)
-                    blok_konteks = [b.strip() for b in baris_list[awal:akhir] if b.strip()]
+                    akhir = min(total_baris, idx + window + 1)
+                    blok_konteks = [b for b in baris_list[awal:akhir]]
                     
                     hasil.append({
                         "halaman": i + 1,
