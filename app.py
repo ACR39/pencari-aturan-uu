@@ -93,7 +93,7 @@ with st.sidebar:
     else:
         st.caption("Belum ada file PDF di repositori.")
 
-# Fungsi Pencarian
+# Fungsi Pencarian dengan Pengecualian Teks Sambungan Pojok Kanan Bawah (...)
 def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
     hasil = []
     try:
@@ -106,7 +106,16 @@ def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
             baris_list = teks_halaman.split('\n')
             
             for idx, baris in enumerate(baris_list):
-                if kata_kunci.lower() in baris.lower():
+                baris_bersih = baris.strip()
+                
+                # Cek apakah kata kunci ada di baris ini
+                if kata_kunci.lower() in baris_bersih.lower():
+                    # 🔍 PENGECUALIAN:
+                    # Jika baris tersebut diakhiri dengan titik-titik ("..." atau "..")
+                    # seperti indikator sambungan di pojok kanan bawah, maka DIABAIKAN!
+                    if baris_bersih.endswith("...") or baris_bersih.endswith("..") or baris_bersih.endswith(". . ."):
+                        continue
+                    
                     awal = max(0, idx - window)
                     akhir = min(len(baris_list), idx + window + 1)
                     blok_konteks = [b.strip() for b in baris_list[awal:akhir] if b.strip()]
@@ -123,7 +132,6 @@ def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
 if not file_pdf_list:
     st.warning("⚠️ Belum ada dokumen PDF undang-undang yang diunggah ke repositori GitHub.")
 else:
-    # Menggunakan st.form agar input dan tombol menyatu secara stabil
     with st.form(key="search_form"):
         col1, col2 = st.columns([4, 1])
         with col1:
