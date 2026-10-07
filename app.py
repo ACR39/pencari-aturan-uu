@@ -3,10 +3,10 @@ import streamlit as st
 from pypdf import PdfReader
 
 # Pengaturan Judul Halaman Website
-st.set_page_config(page_title="Mesin Pencari Undang-Undang", page_icon="📚", layout="centered")
+st.set_page_config(page_title="Pencari Undang-Undang Global", page_icon="📚", layout="centered")
 
-st.title("📚 Mesin Pencari Undang-Undang Online")
-st.markdown("Cari topik atau kata kunci tertentu di dalam dokumen undang-undang secara instan tanpa harus baca satu per satu.")
+st.title("📚 Mesin Pencari Semua Undang-Undang")
+st.markdown("Ketik topik atau kata kunci apa saja, sistem akan otomatis mencari di seluruh dokumen PDF yang tersimpan!")
 
 # Fungsi untuk membaca dan mencari teks di dalam file PDF
 def cari_dalam_pdf(file_path, kata_kunci):
@@ -16,7 +16,6 @@ def cari_dalam_pdf(file_path, kata_kunci):
         for i, halaman in enumerate(reader.pages):
             teks_halaman = halaman.extract_text()
             if kata_kunci.lower() in teks_halaman.lower():
-                # Ambil baris-baris yang mengandung kata kunci
                 baris_list = teks_halaman.split('\n')
                 cuplikan = [baris.strip() for baris in baris_list if kata_kunci.lower() in baris.lower()]
                 hasil.append({
@@ -24,46 +23,50 @@ def cari_dalam_pdf(file_path, kata_kunci):
                     "cuplikan": cuplikan
                 })
     except Exception as e:
-        st.error(f"Terjadi kesalahan saat membaca file: {e}")
+        pass # Lewati jika ada error pada file tertentu
     return hasil
 
-# Direktori tempat file PDF undang-undang disimpan (misalnya di folder yang sama di GitHub)
-# Kamu bisa membuat folder khusus bernama 'data_uu' atau langsung di root repository.
+# Direktori penyimpanan file PDF di GitHub
 FOLDER_PENYIMPANAN = "." 
 
-# Mencari semua file PDF di folder
+# Ambil semua file PDF yang ada secara otomatis
 if os.path.exists(FOLDER_PENYIMPANAN):
     file_pdf_list = [f for f in os.listdir(FOLDER_PENYIMPANAN) if f.lower().endswith('.pdf')]
 else:
     file_pdf_list = []
 
 if not file_pdf_list:
-    st.warning("⚠️ Belum ada file PDF undang-undang yang ditemukan di repository GitHub. Silakan unggah file PDF melalui menu 'Add file' di GitHub.")
+    st.warning("⚠️ Belum ada file PDF undang-undang di repository GitHub. Silakan unggah file PDF terlebih dahulu.")
 else:
-    # Pilihan file PDF dari dropdown
-    pilihan_file = st.selectbox("Pilih Dokumen Undang-Undang:", file_pdf_list)
-    
-    # Kolom untuk mengetik kata kunci pencarian
+    # Langsung sediakan kolom pencarian tanpa perlu memilih dropdown dokumen
     kata_kunci = st.text_input("Masukkan topik atau kata kunci yang dicari (contoh: 'sanksi', 'pasal 5', 'pidana'):")
     
-    if st.button("Cari Sekarang", type="primary"):
+    if st.button("Cari di Semua Undang-Undang", type="primary"):
         if not kata_kunci.strip():
             st.warning("Tolong masukkan kata kunci terlebih dahulu ya!")
         else:
-            path_file_terpilih = os.path.join(FOLDER_PENYIMPANAN, pilihan_file)
-            
-            with st.spinner(f"Sedang memindai '{pilihan_file}'..."):
-                hasil_pencarian = cari_dalam_pdf(path_file_terpilih, kata_kunci)
-            
             st.markdown("---")
-            st.subheader(f"Hasil Pencarian untuk: *'{kata_kunci}'*")
+            st.subheader(iklan := f"Hasil Pencarian untuk: *'{kata_kunci}'*")
             
-            if not hasil_pencarian:
-                st.info("Maaf, kata kunci tersebut tidak ditemukan di dalam dokumen ini.")
-            else:
-                st.success(f"Ditemukan di **{len(hasil_pencarian)} halaman**!")
+            total_ditemukan_global = 0
+            
+            # Melakukan perulangan (looping) ke semua file PDF secara otomatis!
+            for nama_file in file_pdf_list:
+                path_file = os.path.join(FOLDER_PENYIMPANAN, nama_file)
                 
-                for item in hasil_pencarian:
-                    with st.expander(f"📄 Halaman {item['halaman']}", expanded=True):
-                        for c in item['cuplikan'][:5]: # Batasi tampilkan maksimal 5 cuplikan per halaman
-                            st.write(f"> {c}")
+                with st.spinner(f"Memindai dokumen: {nama_file}..."):
+                    hasil_pencarian = cari_dalam_pdf(path_file, kata_kunci)
+                
+                if hasil_pencarian:
+                    total_ditemukan_global += len(hasil_pencarian)
+                    with st.expander(f"📁 Dokumen: {nama_file} (Ditemukan di {len(hasil_pencarian)} halaman)", expanded=True):
+                        for item in hasil_pencarian:
+                            st.markdown(f"**Halaman {item['halaman']}**")
+                            for c in item['cuplikan'][:3]: # Batasi cuplikan per halaman
+                                st.write(f"> {c}")
+                            st.markdown("---")
+            
+            if total_ditemukan_global == 0:
+                st.info("Maaf, kata kunci tersebut tidak ditemukan di seluruh dokumen undang-undang yang ada.")
+            else:
+                st.success(f"Pencarian selesai! Ditemukan total di {total_ditemukan_global} tempat dari berbagai dokumen.")
