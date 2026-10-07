@@ -62,6 +62,14 @@ st.markdown("""
         line-height: 1.5;
         color: #d1d5db;
     }
+    /* Style untuk Highlight Kata Kunci */
+    .highlight-word {
+        background-color: #ffd700;
+        color: #000000;
+        font-weight: bold;
+        padding: 2px 5px;
+        border-radius: 4px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -94,13 +102,18 @@ with st.sidebar:
     else:
         st.caption("Belum ada file PDF di repositori.")
 
-# Fungsi Bersihkan Teks dari Nomor Halaman & Teks Sambungan (...)
+# Fungsi Bersihkan Teks
 def bersihkan_teks_uu(teks):
-    # 1. Hapus pola nomor halaman & kata sambungan seperti "- 4 - 25. Penumpang . . ." atau "b. lajur . . ."
     teks_bersih = re.sub(r'(-?\s*\d+\s*-?)*\s*[a-zA-Z0-9_]+\s*(\.|\s){2,}', '', teks)
-    # 2. Hapus sisa-sisa titik tiga beruntun
     teks_bersih = re.sub(r'(\.|\s){3,}', ' ', teks_bersih)
     return teks_bersih.strip()
+
+# Fungsi Highlight Teks Kata Kunci
+def berikan_highlight(teks, kata_kunci):
+    if not kata_kunci:
+        return teks
+    pattern = re.compile(re.escape(kata_kunci), re.IGNORECASE)
+    return pattern.sub(lambda m: f'<span class="highlight-word">{m.group(0)}</span>', teks)
 
 # Fungsi Pencarian Kontekstual Pintar
 def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
@@ -115,15 +128,12 @@ def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
             baris_list = [b.strip() for b in teks_halaman.split('\n') if b.strip()]
             
             for idx, baris in enumerate(baris_list):
-                # Bersihkan baris dari sampah nomor halaman / titik sambungan pojok
                 baris_dibersihkan = bersihkan_teks_uu(baris)
                 
-                # Cek apakah kata kunci ada di baris yang sudah dibersihkan
                 if kata_kunci.lower() in baris_dibersihkan.lower():
                     awal = max(0, idx - window)
                     akhir = min(len(baris_list), idx + window + 1)
                     
-                    # Ambil blok konteks dan bersihkan masing-masing barisnya
                     blok_konteks = [bersihkan_teks_uu(b) for b in baris_list[awal:akhir] if bersihkan_teks_uu(b)]
                     
                     hasil.append({
@@ -167,18 +177,22 @@ else:
             if total_ditemukan > 0:
                 st.success(f"Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
                 
+                # Tampilkan hasil dalam Expander/Dropdown per dokumen
                 for item in semua_hasil:
-                    st.markdown(f"### 📄 Dokumen: `{item['file']}`")
-                    for detail in item['data']:
-                        st.markdown(f"""
-                            <div class="result-card">
-                                <span class="file-tag">{item['file']}</span>
-                                <span class="page-tag">Halaman {detail['halaman']}</span>
-                                <div class="context-box">
-                                    "{detail['konteks']}"
+                    # Menggunakan st.expander supaya hasil per UU bisa ditutup/dibuka
+                    with st.expander(f"📄 **{item['file']}** — (Ditemukan di {len(item['data'])} tempat)", expanded=True):
+                        for detail in item['data']:
+                            # Berikan highlight warna kuning pada kata kunci
+                            konteks_highlight = berikan_highlight(detail['konteks'], kata_kunci)
+                            
+                            st.markdown(f"""
+                                <div class="result-card">
+                                    <span class="file-tag">{item['file']}</span>
+                                    <span class="page-tag">Halaman {detail['halaman']}</span>
+                                    <div class="context-box">
+                                        "{konteks_highlight}"
+                                    </div>
                                 </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    st.markdown("---")
+                            """, unsafe_allow_html=True)
             else:
                 st.info(f"Tidak ditemukan kata kunci **'{kata_kunci}'** di seluruh dokumen.")
