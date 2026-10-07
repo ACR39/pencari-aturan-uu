@@ -10,55 +10,43 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Custom CSS untuk Mempercantik Tampilan (Tema Dark & Glassmorphism)
+# 2. Custom CSS
 st.markdown("""
     <style>
-    /* Styling Header & Judul */
     .main-header {
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        padding: 2.5rem;
-        border-radius: 15px;
+        padding: 2rem;
+        border-radius: 12px;
         color: white;
         text-align: center;
         margin-bottom: 2rem;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     }
     .main-header h1 {
-        font-size: 2.5rem;
+        font-size: 2.2rem;
         font-weight: 700;
         margin-bottom: 0.5rem;
         color: #ffffff;
     }
-    .main-header p {
-        font-size: 1.1rem;
-        opacity: 0.9;
-        color: #e0e0e0;
-    }
-    
-    /* Card Hasil Pencarian */
     .result-card {
         background-color: #1a1c23;
         border: 1px solid #2e323e;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin-bottom: 1.2rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        border-radius: 10px;
+        padding: 1.2rem;
+        margin-bottom: 1rem;
     }
     .file-tag {
         background-color: #2a5298;
         color: #ffffff;
-        padding: 0.3rem 0.8rem;
-        border-radius: 20px;
-        font-size: 0.85rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 15px;
+        font-size: 0.8rem;
         font-weight: 600;
-        display: inline-block;
-        margin-bottom: 0.8rem;
     }
     .page-tag {
         background-color: #ff9800;
         color: #ffffff;
-        padding: 0.2rem 0.6rem;
-        border-radius: 6px;
+        padding: 0.2rem 0.5rem;
+        border-radius: 5px;
         font-size: 0.8rem;
         font-weight: bold;
         margin-left: 0.5rem;
@@ -66,12 +54,11 @@ st.markdown("""
     .context-box {
         background-color: #0f1117;
         border-left: 4px solid #ff9800;
-        padding: 1rem;
+        padding: 0.8rem;
         border-radius: 4px;
-        margin-top: 0.8rem;
-        font-family: 'Courier New', Courier, monospace;
+        margin-top: 0.6rem;
         font-size: 0.95rem;
-        line-height: 1.6;
+        line-height: 1.5;
         color: #d1d5db;
     }
     </style>
@@ -85,7 +72,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Sidebar untuk Informasi & Statistik Dokumen
+# Sidebar
 with st.sidebar:
     st.title("📂 Status Repositori")
     st.markdown("---")
@@ -106,7 +93,7 @@ with st.sidebar:
     else:
         st.caption("Belum ada file PDF di repositori.")
 
-# Fungsi Pencarian Kontekstual
+# Fungsi Pencarian
 def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
     hasil = []
     try:
@@ -136,20 +123,48 @@ def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
 if not file_pdf_list:
     st.warning("⚠️ Belum ada dokumen PDF undang-undang yang diunggah ke repositori GitHub.")
 else:
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        kata_kunci = st.text_input("", placeholder="Masukkan topik, istilah, atau nomor pasal (contoh: 'sanksi pidana', 'Pasal 5')...")
-    with col2:
-        st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-        tombol_cari = st.button("🔍 Cari", type="primary", use_container_width=True)
-        
-    if tombol_cari and kata_kunci.strip():
-        st.markdown("---")
-        
-        total_ditemukan = 0
-        semua_hasil = []
-        
-        # Proses pencarian
-        with st.spinner("Sedang memindai seluruh dokumen undang-undang..."):
-            for nama_file in file_pdf_list:
-                path_file = os
+    # Menggunakan st.form agar input dan tombol menyatu secara stabil
+    with st.form(key="search_form"):
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            kata_kunci = st.text_input("Kata Kunci", placeholder="Masukkan kata kunci atau nomor pasal (contoh: 'sanksi pidana', 'Pasal 5')...", label_visibility="collapsed")
+        with col2:
+            tombol_cari = st.form_submit_button("🔍 Cari", type="primary", use_container_width=True)
+
+    if tombol_cari:
+        if not kata_kunci.strip():
+            st.warning("Ketikkan kata kunci atau nomor pasal yang ingin kamu cari dulu ya.")
+        else:
+            st.markdown("---")
+            total_ditemukan = 0
+            semua_hasil = []
+            
+            with st.spinner("Sedang memindai seluruh dokumen undang-undang..."):
+                for nama_file in file_pdf_list:
+                    path_file = os.path.join(FOLDER_PENYIMPANAN, nama_file)
+                    hasil_file = cari_dalam_pdf_kontekstual(path_file, kata_kunci)
+                    if hasil_file:
+                        total_ditemukan += len(hasil_file)
+                        semua_hasil.append({
+                            "file": nama_file,
+                            "data": hasil_file
+                        })
+            
+            if total_ditemukan > 0:
+                st.success(f"Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
+                
+                for item in semua_hasil:
+                    st.markdown(f"### 📄 Dokumen: `{item['file']}`")
+                    for detail in item['data']:
+                        st.markdown(f"""
+                            <div class="result-card">
+                                <span class="file-tag">{item['file']}</span>
+                                <span class="page-tag">Halaman {detail['halaman']}</span>
+                                <div class="context-box">
+                                    "{detail['konteks']}"
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    st.markdown("---")
+            else:
+                st.info(f"Tidak ditemukan kata kunci **'{kata_kunci}'** di seluruh dokumen.")
