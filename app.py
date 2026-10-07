@@ -94,7 +94,15 @@ with st.sidebar:
     else:
         st.caption("Belum ada file PDF di repositori.")
 
-# Fungsi Pencarian Ketat
+# Fungsi Bersihkan Teks dari Nomor Halaman & Teks Sambungan (...)
+def bersihkan_teks_uu(teks):
+    # 1. Hapus pola nomor halaman & kata sambungan seperti "- 4 - 25. Penumpang . . ." atau "b. lajur . . ."
+    teks_bersih = re.sub(r'(-?\s*\d+\s*-?)*\s*[a-zA-Z0-9_]+\s*(\.|\s){2,}', '', teks)
+    # 2. Hapus sisa-sisa titik tiga beruntun
+    teks_bersih = re.sub(r'(\.|\s){3,}', ' ', teks_bersih)
+    return teks_bersih.strip()
+
+# Fungsi Pencarian Kontekstual Pintar
 def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
     hasil = []
     try:
@@ -105,24 +113,18 @@ def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
                 continue
                 
             baris_list = [b.strip() for b in teks_halaman.split('\n') if b.strip()]
-            total_baris = len(baris_list)
             
             for idx, baris in enumerate(baris_list):
-                if kata_kunci.lower() in baris.lower():
-                    # 🔍 DETEKSI SAMBUNGAN POJOK KANAN BAWAH:
-                    # 1. Menggunakan Regex untuk mengecek apakah baris diakhiri titik-titik (misal: "...", "..", ". . .")
-                    is_pemberitahuan_sambungan = bool(re.search(r'(\.|\s){2,}$', baris))
-                    
-                    # 2. Cek apakah posisi baris ini ada di 3 baris paling bawah halaman
-                    is_posisi_bawah = (idx >= total_baris - 3)
-                    
-                    # Jika diakhiri titik-titik ATAU ada di posisi paling bawah dengan titik-titik, LEWATI!
-                    if is_pemberitahuan_sambungan or (is_posisi_bawah and "." in baris[-5:]):
-                        continue
-                    
+                # Bersihkan baris dari sampah nomor halaman / titik sambungan pojok
+                baris_dibersihkan = bersihkan_teks_uu(baris)
+                
+                # Cek apakah kata kunci ada di baris yang sudah dibersihkan
+                if kata_kunci.lower() in baris_dibersihkan.lower():
                     awal = max(0, idx - window)
-                    akhir = min(total_baris, idx + window + 1)
-                    blok_konteks = [b for b in baris_list[awal:akhir]]
+                    akhir = min(len(baris_list), idx + window + 1)
+                    
+                    # Ambil blok konteks dan bersihkan masing-masing barisnya
+                    blok_konteks = [bersihkan_teks_uu(b) for b in baris_list[awal:akhir] if bersihkan_teks_uu(b)]
                     
                     hasil.append({
                         "halaman": i + 1,
