@@ -138,9 +138,9 @@ Aturan Ringkasan:
 2. Gunakan bahasa Indonesia baku yang mudah dipahami orang awam.
 3. Sebutkan nomor pasal atau undang-undangnya jika ada di teks.
 """
-        # Menggunakan model gemini-2.0-flash yang aktif
+        # Menggunakan model gemini-3.8-flash sesuai instruksi API Google
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-3.8-flash',
             contents=prompt,
         )
         return response.text
