@@ -3,6 +3,7 @@ import re
 import streamlit as st
 from pypdf import PdfReader
 from google import genai
+from groq import Groq
 
 st.set_page_config(
     page_title="Pencari UU Online",
@@ -39,7 +40,8 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Inisialisasi API Key Gemini
+# Inisialisasi API Keys
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "")
 
 # Sidebar & Indeks File
@@ -50,11 +52,13 @@ with st.sidebar:
     file_pdf_list = [f for f in os.listdir(FOLDER_PENYIMPANAN) if f.lower().endswith('.pdf')] if os.path.exists(FOLDER_PENYIMPANAN) else []
     st.metric(label="Total Dokumen Terdaftar", value=f"{len(file_pdf_list)} PDF")
     
-    # Input API Key jika belum diset di server/secrets
+    # Pengaturan API Key jika belum diset di Secrets
+    st.markdown("---")
+    st.markdown("### 🤖 Pengaturan AI")
+    if not GROQ_API_KEY:
+        GROQ_API_KEY = st.text_input("Groq API Key (Utama - Gratis)", type="password", help="Dapatkan di console.groq.com")
     if not GEMINI_API_KEY:
-        st.markdown("---")
-        st.markdown("### 🤖 Pengaturan AI")
-        GEMINI_API_KEY = st.text_input("Gemini API Key", type="password", help="Masukkan API Key dari Google AI Studio untuk mengaktifkan ringkasan AI.")
+        GEMINI_API_KEY = st.text_input("Gemini API Key (Cadangan)", type="password", help="Dapatkan di aistudio.google.com")
         
     st.markdown("---")
     st.markdown("### 📜 Daftar File Aktif & Unduh:")
@@ -66,10 +70,9 @@ with st.sidebar:
     else:
         st.caption("Belum ada file PDF di repositori.")
 
-# --- FITUR CACHING: Membaca dan Menyimpan Teks PDF di Memori RAM ---
+# --- FITUR CACHING: Memuat PDF ke Memori RAM ---
 @st.cache_data(show_spinner="⚡ Menyiapkan & memuat memori dokumen PDF...")
 def muat_semua_dokumen_pdf(folder_path):
-    """Membaca seluruh PDF sekali saja dan menyimpannya di cache RAM agar pencarian instant."""
     data_dokumen = {}
     if os.path.exists(folder_path):
         for nama_file in os.listdir(folder_path):
@@ -110,7 +113,6 @@ def berikan_highlight(teks, kata_kunci):
     return pattern.sub(lambda m: f'<span class="highlight-word">{m.group(0)}</span>', teks)
 
 def cari_dari_cache_kontekstual(data_dokumen, kata_kunci, window=2):
-    """Melakukan pencarian sangat cepat langsung dari memori RAM (cache)."""
     semua_hasil = []
     total_ditemukan = 0
     
@@ -142,23 +144,18 @@ def cari_dari_cache_kontekstual(data_dokumen, kata_kunci, window=2):
             
     return semua_hasil, total_ditemukan
 
-# --- FUNGSI GEMINI AI DENGAN RETRY OTOMATIS MULTI-MODEL ---
-def buat_ringkasan_gemini(api_key, kata_kunci, semua_hasil):
-    """Mencoba beberapa model Gemini berturut-turut untuk menghindari error 503 server sibuk."""
-    try:
-        client = genai.Client(api_key=api_key)
-        konteks_gabungan = ""
-        count = 0
-        for item in semua_hasil:
-            for detail in item['data']:
-                konteks_gabungan += f"- Dokumen {item['file']} (Hal. {detail['halaman']}): {detail['konteks']}\n"
-                count += 1
-                if count >= 8: 
-                    break
-            if count >= 8: 
-                break
+# --- FUNGSI RINGKASAN HYBRID AI (UTAMA: GROQ | CADANGAN: GEMINI) ---
+def buat_ringkasan_ai_hybrid(groq_key, gemini_key, kata_kunci, semua_hasil):
+    konteks_gabungan = ""
+    count = 0
+    for item in semua_hasil:
+        for detail in item['data']:
+            konteks_gabungan += f"- Dokumen {item['file']} (Hal. {detail['halaman']}): {detail['konteks']}\n"
+            count += 1
+            if count >= 8: break
+        if count >= 8: break
 
-        prompt = f"""
+    prompt = f"""
 Kamu adalah asisten hukum AI. Berdasarkan potongan ayat/pasal Undang-Undang berikut, buatlah ringkasan penjelasan yang sangat singkat, jelas, dan mudah dipahami mengenai istilah/kata kunci: "{kata_kunci}".
 
 Potongan Teks Hukum:
@@ -169,29 +166,36 @@ Aturan Ringkasan:
 2. Gunakan bahasa Indonesia baku yang mudah dipahami orang awam.
 3. Sebutkan nomor pasal atau undang-undangnya jika ada di teks.
 """
-        # Daftar model yang akan dicoba bertahap jika ada kendala server sibuk (503)
-        daftar_model = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
-        
-        for model_name in daftar_model:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                return response.text
-            except Exception as e_inner:
-                err_msg = str(e_inner).upper()
-                if "503" in err_msg or "UNAVAILABLE" in err_msg or "404" in err_msg or "NOT_FOUND" in err_msg:
+
+    # 1. Coba Groq Llama 3 Dulu (Pilihan Utama)
+    if groq_key:
+        try:
+            client_groq = Groq(api_key=groq_key)
+            response = client_groq.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.choices[0].message.content
+        except Exception:
+            pass # Jika Groq bermasalah, otomatis lanjut ke Gemini
+
+    # 2. Cadangan ke Gemini AI jika Groq gagal/kosong
+    if gemini_key:
+        try:
+            client_gemini = genai.Client(api_key=gemini_key)
+            daftar_model = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+            for model_name in daftar_model:
+                try:
+                    res = client_gemini.models.generate_content(model=model_name, contents=prompt)
+                    return res.text
+                except Exception:
                     continue
-                else:
-                    raise e_inner
+        except Exception:
+            pass
 
-        return "⚠️ Server AI sedang mengalami lonjakan pengunjung. Silakan klik 'Cari' sekali lagi dalam beberapa saat."
+    return "⚠️ Tidak dapat membuat ringkasan AI. Pastikan API Key Groq atau Gemini telah diisi di sidebar/secrets."
 
-    except Exception as e:
-        return f"⚠️ Gagal membuat ringkasan AI: {str(e)}"
-
-# Memuat dokumen ke cache saat aplikasi dimulai
+# Memuat dokumen ke cache RAM
 data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
 
 if not file_pdf_list:
@@ -204,8 +208,7 @@ else:
         with col2:
             tombol_cari = st.form_submit_button("🔍 Cari", type="primary", use_container_width=True)
             
-    # Opsi Checkbox agar pengguna bisa memilih pakai AI atau pencarian super cepat saja
-    gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI Gemini", value=True, help="Hapus centang untuk pencarian super cepat tanpa menunggu ringkasan AI.")
+    gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI (Groq / Gemini)", value=True, help="Hapus centang untuk pencarian super cepat tanpa ringkasan AI.")
 
     if tombol_cari:
         if not query_input.strip():
@@ -214,26 +217,24 @@ else:
             kata_kunci = ekstrak_kata_kunci_fleksibel(query_input)
             st.markdown("---")
             
-            # Pencarian instan dari Cache
             semua_hasil, total_ditemukan = cari_dari_cache_kontekstual(data_pdf_cached, kata_kunci)
             
             if total_ditemukan > 0:
                 if kata_kunci.lower() != query_input.lower():
                     st.caption(f"💡 *Menampilkan hasil pencarian untuk istilah inti:* **'{kata_kunci}'**")
                 
-                # --- MODUL RINGKASAN GEMINI AI ---
                 if gunakan_ai:
-                    if GEMINI_API_KEY:
-                        with st.spinner("🤖 AI Gemini sedang menyusun ringkasan..."):
-                            ringkasan_ai = buat_ringkasan_gemini(GEMINI_API_KEY, kata_kunci, semua_hasil)
+                    if GROQ_API_KEY or GEMINI_API_KEY:
+                        with st.spinner("🤖 AI sedang menyusun ringkasan..."):
+                            ringkasan_ai = buat_ringkasan_ai_hybrid(GROQ_API_KEY, GEMINI_API_KEY, kata_kunci, semua_hasil)
                             st.markdown(f"""
                                 <div class="ai-box">
-                                    <h3>✨ Ringkasan AI Gemini untuk "{kata_kunci}"</h3>
+                                    <h3>✨ Ringkasan AI untuk "{kata_kunci}"</h3>
                                     <p>{ringkasan_ai}</p>
                                 </div>
                             """, unsafe_allow_html=True)
                     else:
-                        st.info("💡 *Tips: Masukkan Gemini API Key di sidebar untuk mendapatkan ringkasan otomatis oleh AI!*")
+                        st.info("💡 *Tips: Masukkan Groq API Key di sidebar untuk mendapatkan ringkasan kilat dari AI!*")
 
                 st.success(f"⚡ Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
                 for item in semua_hasil:
