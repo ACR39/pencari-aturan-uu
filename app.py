@@ -155,8 +155,10 @@ def buat_ringkasan_ai_hybrid(groq_key, gemini_key, kata_kunci, semua_hasil):
         for detail in item['data']:
             konteks_gabungan += f"- Dokumen {item['file']} (Hal. {detail['halaman']}): {detail['konteks']}\n"
             count += 1
-            if count >= 8: break
-        if count >= 8: break
+            if count >= 8: 
+                break
+        if count >= 8: 
+            break
 
     prompt = f"""
 Kamu adalah asisten hukum AI. Berdasarkan potongan ayat/pasal Undang-Undang berikut, buatlah ringkasan penjelasan yang sangat singkat, jelas, dan mudah dipahami mengenai istilah/kata kunci: "{kata_kunci}".
@@ -174,4 +176,89 @@ Aturan Ringkasan:
     # 1. Coba Groq Llama 3 (Utama)
     if groq_key:
         try:
-            client_groq = Groq(api_key=groq_
+            client_groq = Groq(api_key=groq_key)
+            response = client_groq.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            catatan_error.append(f"Groq error: {str(e)}")
+
+    # 2. Cadangan Gemini AI
+    if gemini_key:
+        try:
+            client_gemini = genai.Client(api_key=gemini_key)
+            daftar_model = ['gemini-2.0-flash', 'gemini-1.5-flash']
+            for model_name in daftar_model:
+                try:
+                    res = client_gemini.models.generate_content(model=model_name, contents=prompt)
+                    return res.text
+                except Exception as e_inner:
+                    catatan_error.append(f"Gemini ({model_name}): {str(e_inner)}")
+        except Exception as e:
+            catatan_error.append(f"Gemini client error: {str(e)}")
+
+    if catatan_error:
+        return "⚠️ Kendala API:\n" + "\n".join(catatan_error)
+    return "⚠️ Tidak dapat membuat ringkasan AI. Pastikan API Key Groq atau Gemini telah diisi di sidebar/secrets."
+
+# Memuat dokumen ke cache RAM
+data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
+
+if not file_pdf_list:
+    st.warning("⚠️ Belum ada dokumen PDF undang-undang yang diunggah ke repositori GitHub.")
+else:
+    with st.form(key="search_form"):
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            query_input = st.text_input("Kata Kunci", placeholder="Ketik kalimat atau istilah (contoh: Apa itu Hak Cipta?)...", label_visibility="collapsed")
+        with col2:
+            tombol_cari = st.form_submit_button("🔍 Cari", type="primary", use_container_width=True)
+            
+    gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI (Groq / Gemini)", value=True, help="Hapus centang untuk pencarian super cepat tanpa ringkasan AI.")
+
+    if tombol_cari:
+        if not query_input.strip():
+            st.warning("Ketikkan kata kunci terlebih dahulu.")
+        else:
+            kata_kunci = ekstrak_kata_kunci_fleksibel(query_input)
+            st.markdown("---")
+            
+            semua_hasil, total_ditemukan = cari_dari_cache_kontekstual(data_pdf_cached, kata_kunci)
+            
+            if total_ditemukan > 0:
+                if kata_kunci.lower() != query_input.lower():
+                    st.caption(f"💡 *Menampilkan hasil pencarian untuk istilah inti:* **'{kata_kunci}'**")
+                
+                if gunakan_ai:
+                    if GROQ_API_KEY or GEMINI_API_KEY:
+                        with st.spinner("🤖 AI sedang menyusun ringkasan..."):
+                            ringkasan_ai = buat_ringkasan_ai_hybrid(GROQ_API_KEY, GEMINI_API_KEY, kata_kunci, semua_hasil)
+                            st.markdown(f"""
+                                <div class="ai-box">
+                                    <h3>✨ Ringkasan AI untuk "{kata_kunci}"</h3>
+                                    <p>{ringkasan_ai}</p>
+                                </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.info("💡 *Tips: Masukkan Groq API Key di sidebar untuk mendapatkan ringkasan kilat dari AI!*")
+
+                st.success(f"⚡ Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
+                for item in semua_hasil:
+                    with st.expander(f"📄 **{item['file']}** — (Ditemukan di {len(item['data'])} tempat)", expanded=True):
+                        if os.path.exists(item['path']):
+                            with open(item['path'], "rb") as pdf_file:
+                                st.download_button(label=f"📥 Unduh Dokumen Lengkap ({item['file']})", data=pdf_file, file_name=item['file'], mime="application/pdf", key=f"main_dl_{item['file']}")
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        for detail in item['data']:
+                            konteks_highlight = berikan_highlight(detail['konteks'], kata_kunci)
+                            st.markdown(f"""
+                                <div class="result-card">
+                                    <span class="file-tag">{item['file']}</span>
+                                    <span class="page-tag">Halaman {detail['halaman']}</span>
+                                    <div class="context-box">"{konteks_highlight}"</div>
+                                </div>
+                            """, unsafe_allow_html=True)
+            else:
+                st.info(f"Tidak ditemukan kata kunci **'{kata_kunci}'** di seluruh dokumen.")
