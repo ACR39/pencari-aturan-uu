@@ -50,7 +50,7 @@ with st.sidebar:
     file_pdf_list = [f for f in os.listdir(FOLDER_PENYIMPANAN) if f.lower().endswith('.pdf')] if os.path.exists(FOLDER_PENYIMPANAN) else []
     st.metric(label="Total Dokumen Terdaftar", value=f"{len(file_pdf_list)} PDF")
     
-    # Input API Key jika belum diset di server
+    # Input API Key jika belum diset di server/secrets
     if not GEMINI_API_KEY:
         st.markdown("---")
         st.markdown("### 🤖 Pengaturan AI")
@@ -67,6 +67,7 @@ with st.sidebar:
         st.caption("Belum ada file PDF di repositori.")
 
 def ekstrak_kata_kunci_fleksibel(query):
+    """Menghapus kata-kata pertanyaan umum agar pencarian fokus pada inti kata/istilah."""
     stop_words = [
         r"apa itu", r"apa yang dimaksud dengan", r"apakah yang dimaksud dengan",
         r"apa yang dimaksud", r"jelaskan tentang", r"jelaskan", r"sebutkan", 
@@ -134,72 +135,10 @@ Aturan Ringkasan:
 2. Gunakan bahasa Indonesia baku yang mudah dipahami orang awam.
 3. Sebutkan nomor pasal atau undang-undangnya jika ada di teks.
 """
+        # Menggunakan model gemini-2.0-flash yang aktif
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-2.0-flash',
             contents=prompt,
         )
         return response.text
     except Exception as e:
-        return f"⚠️ Gagal membuat ringkasan AI: {str(e)}"
-
-if not file_pdf_list:
-    st.warning("⚠️ Belum ada dokumen PDF undang-undang yang diunggah ke repositori GitHub.")
-else:
-    with st.form(key="search_form"):
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            query_input = st.text_input("Kata Kunci", placeholder="Ketik kalimat atau istilah (contoh: Apa itu Hak Cipta?)...", label_visibility="collapsed")
-        with col2:
-            tombol_cari = st.form_submit_button("🔍 Cari", type="primary", use_container_width=True)
-
-    if tombol_cari:
-        if not query_input.strip():
-            st.warning("Ketikkan kata kunci terlebih dahulu.")
-        else:
-            kata_kunci = ekstrak_kata_kunci_fleksibel(query_input)
-            
-            st.markdown("---")
-            total_ditemukan = 0
-            semua_hasil = []
-            with st.spinner("Memindai seluruh dokumen..."):
-                for nama_file in file_pdf_list:
-                    path_file = os.path.join(FOLDER_PENYIMPANAN, nama_file)
-                    hasil_file = cari_dalam_pdf_kontekstual(path_file, kata_kunci)
-                    if hasil_file:
-                        total_ditemukan += len(hasil_file)
-                        semua_hasil.append({"file": nama_file, "path": path_file, "data": hasil_file})
-            
-            if total_ditemukan > 0:
-                if kata_kunci.lower() != query_input.lower():
-                    st.caption(f"💡 *Menampilkan hasil pencarian untuk istilah inti:* **'{kata_kunci}'**")
-                
-                # --- MODUL RINGKASAN GEMINI AI ---
-                if GEMINI_API_KEY:
-                    with st.spinner("🤖 AI Gemini sedang menyusun ringkasan..."):
-                        ringkasan_ai = buat_ringkasan_gemini(GEMINI_API_KEY, kata_kunci, semua_hasil)
-                        st.markdown(f"""
-                            <div class="ai-box">
-                                <h3>✨ Ringkasan AI Gemini untuk "{kata_kunci}"</h3>
-                                <p>{ringkasan_ai}</p>
-                            </div>
-                        """, unsafe_allow_html=True)
-                else:
-                    st.info("💡 *Tips: Masukkan Gemini API Key di sidebar untuk mendapatkan ringkasan otomatis oleh AI!*")
-
-                st.success(f"Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
-                for item in semua_hasil:
-                    with st.expander(f"📄 **{item['file']}** — (Ditemukan di {len(item['data'])} tempat)", expanded=True):
-                        with open(item['path'], "rb") as pdf_file:
-                            st.download_button(label=f"📥 Unduh Dokumen Lengkap ({item['file']})", data=pdf_file, file_name=item['file'], mime="application/pdf", key=f"main_dl_{item['file']}")
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        for detail in item['data']:
-                            konteks_highlight = berikan_highlight(detail['konteks'], kata_kunci)
-                            st.markdown(f"""
-                                <div class="result-card">
-                                    <span class="file-tag">{item['file']}</span>
-                                    <span class="page-tag">Halaman {detail['halaman']}</span>
-                                    <div class="context-box">"{konteks_highlight}"</div>
-                                </div>
-                            """, unsafe_allow_html=True)
-            else:
-                st.info(f"Tidak ditemukan kata kunci **'{kata_kunci}'** di seluruh dokumen.")
