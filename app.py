@@ -173,23 +173,25 @@ Aturan Ringkasan:
 """
     catatan_error = []
 
-    # 1. Coba Groq Llama 3 (Utama)
+    # 1. Coba Groq Llama 3 (Menggunakan Model Aktif: llama-3.1-8b-instant / llama3-8b-8192)
     if groq_key:
-        try:
-            client_groq = Groq(api_key=groq_key)
-            response = client_groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            catatan_error.append(f"Groq error: {str(e)}")
+        daftar_groq_model = ["llama-3.1-8b-instant", "llama3-8b-8192"]
+        for model_groq in daftar_groq_model:
+            try:
+                client_groq = Groq(api_key=groq_key)
+                response = client_groq.chat.completions.create(
+                    model=model_groq,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                catatan_error.append(f"Groq ({model_groq}): {str(e)}")
 
-    # 2. Cadangan Gemini AI
+    # 2. Cadangan Gemini AI (Menggunakan Model Wajib: gemini-3.8-flash)
     if gemini_key:
         try:
             client_gemini = genai.Client(api_key=gemini_key)
-            daftar_model = ['gemini-2.0-flash', 'gemini-1.5-flash']
+            daftar_model = ['gemini-3.8-flash']
             for model_name in daftar_model:
                 try:
                     res = client_gemini.models.generate_content(model=model_name, contents=prompt)
@@ -197,7 +199,7 @@ Aturan Ringkasan:
                 except Exception as e_inner:
                     catatan_error.append(f"Gemini ({model_name}): {str(e_inner)}")
         except Exception as e:
-            catatan_error.append(f"Gemini client error: {str(e)}")
+            catatan_error.append(f"Gemini client: {str(e)}")
 
     if catatan_error:
         return "⚠️ Kendala API:\n" + "\n".join(catatan_error)
