@@ -39,7 +39,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Inisialisasi API Key Gemini (Bisa diset di Streamlit Secrets atau Environment Variable)
+# Inisialisasi API Key Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "")
 
 # Sidebar & Indeks File
@@ -66,8 +66,27 @@ with st.sidebar:
     else:
         st.caption("Belum ada file PDF di repositori.")
 
+# --- FITUR CACHING: Membaca dan Menyimpan Teks PDF di Memori RAM ---
+@st.cache_data(show_spinner="⚡ Menyiapkan & memuat memori dokumen PDF...")
+def muat_semua_dokumen_pdf(folder_path):
+    """Membaca seluruh PDF sekali saja dan menyimpannya di cache RAM agar pencarian instant."""
+    data_dokumen = {}
+    if os.path.exists(folder_path):
+        for nama_file in os.listdir(folder_path):
+            if nama_file.lower().endswith('.pdf'):
+                path_file = os.path.join(folder_path, nama_file)
+                try:
+                    reader = PdfReader(path_file)
+                    halaman_list = []
+                    for i, page in enumerate(reader.pages):
+                        teks = page.extract_text() or ""
+                        halaman_list.append({"halaman": i + 1, "teks": teks})
+                    data_dokumen[nama_file] = halaman_list
+                except Exception:
+                    pass
+    return data_dokumen
+
 def ekstrak_kata_kunci_fleksibel(query):
-    """Menghapus kata-kata pertanyaan umum agar pencarian fokus pada inti kata/istilah."""
     stop_words = [
         r"apa itu", r"apa yang dimaksud dengan", r"apakah yang dimaksud dengan",
         r"apa yang dimaksud", r"jelaskan tentang", r"jelaskan", r"sebutkan", 
@@ -89,12 +108,15 @@ def berikan_highlight(teks, kata_kunci):
     pattern = re.compile(re.escape(kata_kunci), re.IGNORECASE)
     return pattern.sub(lambda m: f'<span class="highlight-word">{m.group(0)}</span>', teks)
 
-def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
-    hasil = []
-    try:
-        reader = PdfReader(file_path)
-        for i, halaman in enumerate(reader.pages):
-            teks_halaman = halaman.extract_text()
+def cari_dari_cache_kontekstual(data_dokumen, kata_kunci, window=2):
+    """Melakukan pencarian sangat cepat langsung dari memori RAM (cache)."""
+    semua_hasil = []
+    total_ditemukan = 0
+    
+    for nama_file, daftar_halaman in data_dokumen.items():
+        hasil_file = []
+        for item in daftar_halaman:
+            teks_halaman = item['teks']
             if not teks_halaman: 
                 continue
             baris_list = [b.strip() for b in teks_halaman.split('\n') if b.strip()]
@@ -104,18 +126,17 @@ def cari_dalam_pdf_kontekstual(file_path, kata_kunci, window=2):
                     awal = max(0, idx - window)
                     akhir = min(len(baris_list), idx + window + 1)
                     blok_konteks = [bersihkan_teks_uu(b) for b in baris_list[awal:akhir] if bersihkan_teks_uu(b)]
-                    hasil.append({"halaman": i + 1, "konteks": " ".join(blok_konteks)})
-    except Exception:
-        pass
-    return hasil
+                    hasil_file.append({"halaman": item['halaman'], "konteks": " ".join(blok_konteks)})
+        
+        if hasil_file:
+            total_ditemukan += len(hasil_file)
+            semua_hasil.append({"file": nama_file, "path": os.path.join(FOLDER_PENYIMPANAN, nama_file), "data": hasil_file})
+            
+    return semua_hasil, total_ditemukan
 
-# --- FUNGSI RINGKASAN GEMINI AI ---
 def buat_ringkasan_gemini(api_key, kata_kunci, semua_hasil):
-    """Mengirimkan potongan teks dari hasil pencarian ke Gemini untuk dirangkum."""
     try:
         client = genai.Client(api_key=api_key)
-        
-        # Mengumpulkan konteks terbaik (maksimal 8 konteks agar prompt tidak terlalu panjang)
         konteks_gabungan = ""
         count = 0
         for item in semua_hasil:
@@ -138,7 +159,6 @@ Aturan Ringkasan:
 2. Gunakan bahasa Indonesia baku yang mudah dipahami orang awam.
 3. Sebutkan nomor pasal atau undang-undangnya jika ada di teks.
 """
-        # Menggunakan model gemini-3.8-flash sesuai instruksi API Google
         response = client.models.generate_content(
             model='gemini-3.8-flash',
             contents=prompt,
@@ -146,6 +166,9 @@ Aturan Ringkasan:
         return response.text
     except Exception as e:
         return f"⚠️ Gagal membuat ringkasan AI: {str(e)}"
+
+# Memuat dokumen ke cache saat aplikasi dimulai
+data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
 
 if not file_pdf_list:
     st.warning("⚠️ Belum ada dokumen PDF undang-undang yang diunggah ke repositori GitHub.")
@@ -156,46 +179,44 @@ else:
             query_input = st.text_input("Kata Kunci", placeholder="Ketik kalimat atau istilah (contoh: Apa itu Hak Cipta?)...", label_visibility="collapsed")
         with col2:
             tombol_cari = st.form_submit_button("🔍 Cari", type="primary", use_container_width=True)
+            
+    # Opsi Checkbox agar pengguna bisa memilih pakai AI atau pencarian super cepat saja
+    gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI Gemini", value=True, help="Hapus centang untuk pencarian super cepat tanpa menunggu ringkasan AI.")
 
     if tombol_cari:
         if not query_input.strip():
             st.warning("Ketikkan kata kunci terlebih dahulu.")
         else:
             kata_kunci = ekstrak_kata_kunci_fleksibel(query_input)
-            
             st.markdown("---")
-            total_ditemukan = 0
-            semua_hasil = []
-            with st.spinner("Memindai seluruh dokumen..."):
-                for nama_file in file_pdf_list:
-                    path_file = os.path.join(FOLDER_PENYIMPANAN, nama_file)
-                    hasil_file = cari_dalam_pdf_kontekstual(path_file, kata_kunci)
-                    if hasil_file:
-                        total_ditemukan += len(hasil_file)
-                        semua_hasil.append({"file": nama_file, "path": path_file, "data": hasil_file})
+            
+            # Pencarian instan dari Cache
+            semua_hasil, total_ditemukan = cari_dari_cache_kontekstual(data_pdf_cached, kata_kunci)
             
             if total_ditemukan > 0:
                 if kata_kunci.lower() != query_input.lower():
                     st.caption(f"💡 *Menampilkan hasil pencarian untuk istilah inti:* **'{kata_kunci}'**")
                 
-                # --- MODUL RINGKASAN GEMINI AI ---
-                if GEMINI_API_KEY:
-                    with st.spinner("🤖 AI Gemini sedang menyusun ringkasan..."):
-                        ringkasan_ai = buat_ringkasan_gemini(GEMINI_API_KEY, kata_kunci, semua_hasil)
-                        st.markdown(f"""
-                            <div class="ai-box">
-                                <h3>✨ Ringkasan AI Gemini untuk "{kata_kunci}"</h3>
-                                <p>{ringkasan_ai}</p>
-                            </div>
-                        """, unsafe_allow_html=True)
-                else:
-                    st.info("💡 *Tips: Masukkan Gemini API Key di sidebar untuk mendapatkan ringkasan otomatis oleh AI!*")
+                # --- MODUL RINGKASAN GEMINI AI (Hanya dipanggil jika dicentang) ---
+                if gunakan_ai:
+                    if GEMINI_API_KEY:
+                        with st.spinner("🤖 AI Gemini sedang menyusun ringkasan..."):
+                            ringkasan_ai = buat_ringkasan_gemini(GEMINI_API_KEY, kata_kunci, semua_hasil)
+                            st.markdown(f"""
+                                <div class="ai-box">
+                                    <h3>✨ Ringkasan AI Gemini untuk "{kata_kunci}"</h3>
+                                    <p>{ringkasan_ai}</p>
+                                </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.info("💡 *Tips: Masukkan Gemini API Key di sidebar untuk mendapatkan ringkasan otomatis oleh AI!*")
 
-                st.success(f"Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
+                st.success(f"⚡ Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
                 for item in semua_hasil:
                     with st.expander(f"📄 **{item['file']}** — (Ditemukan di {len(item['data'])} tempat)", expanded=True):
-                        with open(item['path'], "rb") as pdf_file:
-                            st.download_button(label=f"📥 Unduh Dokumen Lengkap ({item['file']})", data=pdf_file, file_name=item['file'], mime="application/pdf", key=f"main_dl_{item['file']}")
+                        if os.path.exists(item['path']):
+                            with open(item['path'], "rb") as pdf_file:
+                                st.download_button(label=f"📥 Unduh Dokumen Lengkap ({item['file']})", data=pdf_file, file_name=item['file'], mime="application/pdf", key=f"main_dl_{item['file']}")
                         st.markdown("<br>", unsafe_allow_html=True)
                         for detail in item['data']:
                             konteks_highlight = berikan_highlight(detail['konteks'], kata_kunci)
