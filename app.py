@@ -171,17 +171,7 @@ Aturan Ringkasan:
 """
     catatan_error = []
 
-    # 1. Coba Groq Llama 3
+    # 1. Coba Groq Llama 3 (Utama)
     if groq_key:
         try:
-            client_groq = Groq(api_key=groq_key)
-            response = client_groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            catatan_error.append(f"Groq: {str(e)}")
-
-    # 2. Cadangan Gemini AI
-    if gemini_
+            client_groq = Groq(api_key=groq_
