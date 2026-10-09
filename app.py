@@ -2,7 +2,7 @@ import os
 import re
 import streamlit as st
 from pypdf import PdfReader
-from google import genai
+from huggingface_hub import InferenceClient
 
 st.set_page_config(
     page_title="Pencari UU Online",
@@ -46,7 +46,7 @@ def ambil_secret(nama_key):
     except Exception:
         return os.environ.get(nama_key, "")
 
-GEMINI_API_KEY = ambil_secret("GEMINI_API_KEY")
+HF_API_KEY = ambil_secret("HUGGINGFACE_API_KEY")
 
 # Sidebar & Indeks File
 with st.sidebar:
@@ -58,8 +58,8 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### 🤖 Pengaturan AI")
-    if not GEMINI_API_KEY:
-        GEMINI_API_KEY = st.text_input("Gemini API Key", type="password")
+    if not HF_API_KEY:
+        HF_API_KEY = st.text_input("Hugging Face API Token", type="password")
         
     st.markdown("---")
     st.markdown("### 📜 Daftar File Aktif & Unduh:")
@@ -144,8 +144,8 @@ def cari_dari_cache_kontekstual(data_dokumen, kata_kunci, window=2):
             
     return semua_hasil, total_ditemukan
 
-def buat_ringkasan_gemini_langsung(gemini_key, kata_kunci, semua_hasil):
-    """Langsung memanggil model gemini-3.8-flash tanpa berbelit-belit."""
+def buat_ringkasan_hf(hf_key, kata_kunci, semua_hasil):
+    """Ringkasan AI 100% Gratis menggunakan Hugging Face Inference Client."""
     konteks_gabungan = ""
     count = 0
     for item in semua_hasil:
@@ -169,15 +169,15 @@ Aturan Ringkasan:
 3. Sebutkan nomor pasal atau undang-undangnya jika ada di teks.
 """
     try:
-        client = genai.Client(api_key=gemini_key)
-        # Hanya gunakan model gemini-3.8-flash sesuai instruksi Google API
-        res = client.models.generate_content(
-            model='gemini-3.8-flash', 
-            contents=prompt
+        client = InferenceClient(api_key=hf_key)
+        response = client.chat.completions.create(
+            model="meta-llama/Meta-Llama-3-8B-Instruct",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300
         )
-        return res.text
+        return response.choices[0].message.content
     except Exception as e:
-        return f"⚠️ Server Gemini sedang sibuk/mengalami kendala: {str(e)}"
+        return f"⚠️ Gagal memanggil Hugging Face API: {str(e)}"
 
 # Memuat dokumen ke cache RAM
 data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
@@ -192,7 +192,7 @@ else:
         with col2:
             tombol_cari = st.form_submit_button("🔍 Cari", type="primary", use_container_width=True)
             
-    gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI Gemini", value=True, help="Hapus centang untuk pencarian super cepat tanpa ringkasan AI.")
+    gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI Hugging Face", value=True, help="Hapus centang untuk pencarian super cepat tanpa ringkasan AI.")
 
     if tombol_cari:
         if not query_input.strip():
@@ -208,17 +208,17 @@ else:
                     st.caption(f"💡 *Menampilkan hasil pencarian untuk istilah inti:* **'{kata_kunci}'**")
                 
                 if gunakan_ai:
-                    if GEMINI_API_KEY:
-                        with st.spinner("🤖 AI Gemini sedang menyusun ringkasan..."):
-                            ringkasan_ai = buat_ringkasan_gemini_langsung(GEMINI_API_KEY, kata_kunci, semua_hasil)
+                    if HF_API_KEY:
+                        with st.spinner("🤖 AI Hugging Face sedang menyusun ringkasan..."):
+                            ringkasan_ai = buat_ringkasan_hf(HF_API_KEY, kata_kunci, semua_hasil)
                             st.markdown(f"""
                                 <div class="ai-box">
-                                    <h3>✨ Ringkasan AI Gemini untuk "{kata_kunci}"</h3>
+                                    <h3>✨ Ringkasan AI Hugging Face untuk "{kata_kunci}"</h3>
                                     <p>{ringkasan_ai}</p>
                                 </div>
                             """, unsafe_allow_html=True)
                     else:
-                        st.info("💡 *Tips: Masukkan Gemini API Key di sidebar untuk mendapatkan ringkasan kilat dari AI!*")
+                        st.info("💡 *Tips: Masukkan Hugging Face API Token di sidebar untuk mendapatkan ringkasan kilat dari AI!*")
 
                 st.success(f"⚡ Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
                 for item in semua_hasil:
