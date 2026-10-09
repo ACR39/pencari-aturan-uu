@@ -108,7 +108,6 @@ def ekstraksi_kata_kunci_ai(relink_key, query_pengguna):
         hasil = response.choices[0].message.content.strip()
         return hasil.replace('"', '').replace("'", "")
     except Exception:
-        # Fallback manual jika API error
         stop_words = [r"apa itu", r"apa yang dimaksud dengan", r"apakah yang dimaksud dengan", r"bagaimana aturan", r"jelaskan", r"pengertian"]
         q = query_pengguna.strip()
         for w in stop_words:
@@ -123,22 +122,25 @@ def bersihkan_teks_uu(teks):
 def berikan_highlight(teks, kata_kunci_list):
     teks_hasil = teks
     for kw in kata_kunci_list:
-        if len(kw) > 2: # Hanya highlight kata dengan panjang > 2 huruf
+        if len(kw) > 2:
             pattern = re.compile(re.escape(kw), re.IGNORECASE)
             teks_hasil = pattern.sub(lambda m: f'<span class="highlight-word">{m.group(0)}</span>', teks_hasil)
     return teks_hasil
 
-def cari_dari_cache_fleksibel(data_dokumen, kata_kunci_string, window=2):
-    """Pencarian kontekstual fleksibel (mencari kecocokan kata kunci)."""
+def cari_dari_cache_fleksibel(data_dokumen, kata_kunci_string, dokumen_terpilih, window=2):
+    """Pencarian kontekstual fleksibel terfilter pada dokumen tertentu saja."""
     semua_hasil = []
     total_ditemukan = 0
-    # Pecah kata kunci menjadi beberapa kata terpisah untuk pencarian parsial
     daftar_kata = [k.strip().lower() for k in re.split(r'\s+|,', kata_kunci_string) if len(k.strip()) > 2]
     
     if not daftar_kata:
         daftar_kata = [kata_kunci_string.lower()]
 
     for nama_file, daftar_halaman in data_dokumen.items():
+        # FILTER DOKUMEN: Hanya cari di file yang dipilih pengguna
+        if nama_file not in dokumen_terpilih:
+            continue
+
         hasil_file = []
         for item in daftar_halaman:
             teks_halaman = item['teks']
@@ -148,7 +150,6 @@ def cari_dari_cache_fleksibel(data_dokumen, kata_kunci_string, window=2):
             for idx, baris in enumerate(baris_list):
                 baris_dibersihkan = bersihkan_teks_uu(baris).lower()
                 
-                # Hitung berapa banyak kata kunci yang cocok di baris ini
                 jumlah_cocok = sum(1 for kw in daftar_kata if kw in baris_dibersihkan)
                 
                 if jumlah_cocok > 0:
@@ -162,7 +163,6 @@ def cari_dari_cache_fleksibel(data_dokumen, kata_kunci_string, window=2):
                     })
         
         if hasil_file:
-            # Urutkan konteks berdasarkan skor kecocokan tertinggi
             hasil_file = sorted(hasil_file, key=lambda x: x['skor'], reverse=True)
             total_ditemukan += len(hasil_file)
             semua_hasil.append({
@@ -217,6 +217,14 @@ data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
 if not file_pdf_list:
     st.warning("⚠️ Belum ada dokumen PDF undang-undang yang diunggah ke repositori GitHub.")
 else:
+    # FITUR PILIH DOKUMEN (MULTISELECT)
+    dokumen_terpilih = st.multiselect(
+        "📄 Pilih Dokumen UU yang Ingin Ditelusuri:",
+        options=file_pdf_list,
+        default=file_pdf_list, # Secara default memilih semua dokumen
+        help="Pilih 1 atau beberapa dokumen spesifik untuk mempercepat waktu pencarian."
+    )
+
     with st.form(key="search_form"):
         col1, col2 = st.columns([4, 1])
         with col1:
@@ -229,17 +237,19 @@ else:
     if tombol_cari:
         if not query_input.strip():
             st.warning("Ketikkan pertanyaan atau kata kunci terlebih dahulu.")
+        elif not dokumen_terpilih:
+            st.warning("⚠️ Silakan pilih minimal 1 dokumen UU pada daftar di atas sebelum mencari.")
         else:
             st.markdown("---")
             
-            # Ekstraksi Kata Kunci dengan AI
             with st.spinner("🔍 Menganalisis kata kunci pertanyaan..."):
                 kata_kunci_inti = ekstraksi_kata_kunci_ai(RELINK_API_KEY, query_input)
             
-            semua_hasil, total_ditemukan, daftar_kata_list = cari_dari_cache_fleksibel(data_pdf_cached, kata_kunci_inti)
+            # Memanggil pencarian hanya pada dokumen yang dicentang/dipilih
+            semua_hasil, total_ditemukan, daftar_kata_list = cari_dari_cache_fleksibel(data_pdf_cached, kata_kunci_inti, dokumen_terpilih)
             
             if total_ditemukan > 0:
-                st.caption(f"💡 *Pertanyaan:* **'{query_input}'** | *Kata kunci terdeteksi:* **'{kata_kunci_inti}'**")
+                st.caption(f"💡 *Pertanyaan:* **'{query_input}'** | *Kata kunci terdeteksi:* **'{kata_kunci_inti}'** | *Memindai {len(dokumen_terpilih)} dokumen*")
                 
                 if gunakan_ai:
                     if RELINK_API_KEY:
@@ -254,7 +264,7 @@ else:
                     else:
                         st.info("💡 *Tips: Masukkan Relink API Key di sidebar untuk mendapatkan ringkasan kilat dari AI!*")
 
-                st.success(f"⚡ Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
+                st.success(f"⚡ Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen terpilih**.")
                 for item in semua_hasil:
                     with st.expander(f"📄 **{item['file']}** — (Ditemukan di {len(item['data'])} tempat)", expanded=True):
                         if os.path.exists(item['path']):
@@ -271,4 +281,4 @@ else:
                                 </div>
                             """, unsafe_allow_html=True)
             else:
-                st.info(f"Tidak ditemukan konteks yang cocok untuk pertanyaan **'{query_input}'** di seluruh dokumen.")
+                st.info(f"Tidak ditemukan konteks yang cocok untuk pertanyaan **'{query_input}'** pada dokumen terpilih.")
