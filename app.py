@@ -48,21 +48,45 @@ def ambil_secret(nama_key):
 
 RELINK_API_KEY = ambil_secret("RELINK_API_KEY")
 
-# Sidebar & Indeks File
+# Inisialisasi daftar file
+FOLDER_PENYIMPANAN = "."
+file_pdf_list = [f for f in os.listdir(FOLDER_PENYIMPANAN) if f.lower().endswith('.pdf')] if os.path.exists(FOLDER_PENYIMPANAN) else []
+
+# ================= SIDEBAR KIRI =================
 with st.sidebar:
-    st.title("📂 Status Repositori")
+    st.title("📂 Control Panel")
     st.markdown("---")
-    FOLDER_PENYIMPANAN = "."
-    file_pdf_list = [f for f in os.listdir(FOLDER_PENYIMPANAN) if f.lower().endswith('.pdf')] if os.path.exists(FOLDER_PENYIMPANAN) else []
-    st.metric(label="Total Dokumen Terdaftar", value=f"{len(file_pdf_list)} PDF")
+    st.metric(label="Total Dokumen Tersedia", value=f"{len(file_pdf_list)} PDF")
     
+    st.markdown("---")
+    st.markdown("### 📜 Pilih Dokumen yang Dicari:")
+    
+    # Checkbox Pilih Semua
+    pilih_semua = st.checkbox("✅ Pilih Semua Dokumen", value=True)
+    
+    if pilih_semua:
+        dokumen_terpilih = st.multiselect(
+            "Filter spesifik file PDF:",
+            options=file_pdf_list,
+            default=file_pdf_list,
+            disabled=True,
+            help="Hapus centang 'Pilih Semua Dokumen' di atas untuk memilih manual."
+        )
+        dokumen_terpilih = file_pdf_list
+    else:
+        dokumen_terpilih = st.multiselect(
+            "Pilih spesifik file PDF:",
+            options=file_pdf_list,
+            default=[]
+        )
+        
     st.markdown("---")
     st.markdown("### 🤖 Pengaturan AI")
     if not RELINK_API_KEY:
         RELINK_API_KEY = st.text_input("Relink API Key", type="password")
         
     st.markdown("---")
-    st.markdown("### 📜 Daftar File Aktif & Unduh:")
+    st.markdown("### 📥 Unduh File PDF:")
     if file_pdf_list:
         for f in file_pdf_list:
             path_f = os.path.join(FOLDER_PENYIMPANAN, f)
@@ -216,28 +240,6 @@ data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
 if not file_pdf_list:
     st.warning("⚠️ Belum ada dokumen PDF undang-undang yang diunggah ke repositori GitHub.")
 else:
-    # FITUR PILIH DOKUMEN RAPI (EXPANDER & FILTER)
-    if "dokumen_terpilih" not in st.session_state:
-        st.session_state["dokumen_terpilih"] = file_pdf_list
-
-    with st.expander(f"📁 **Filter Dokumen ({len(st.session_state['dokumen_terpilih'])} dari {len(file_pdf_list)} UU Terpilih)**", expanded=False):
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            if st.button("✅ Pilih Semua Dokumen", use_container_width=True):
-                st.session_state["dokumen_terpilih"] = file_pdf_list
-                st.rerun()
-        with c2:
-            if st.button("❌ Kosongkan Pilihan", use_container_width=True):
-                st.session_state["dokumen_terpilih"] = []
-                st.rerun()
-
-        st.session_state["dokumen_terpilih"] = st.multiselect(
-            "Pilih spesifik file PDF yang ingin ditelusuri:",
-            options=file_pdf_list,
-            default=st.session_state["dokumen_terpilih"],
-            label_visibility="collapsed"
-        )
-
     with st.form(key="search_form"):
         col1, col2 = st.columns([4, 1])
         with col1:
@@ -248,11 +250,10 @@ else:
     gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI Relink Gateway", value=True, help="Hapus centang untuk pencarian super cepat tanpa ringkasan AI.")
 
     if tombol_cari:
-        dokumen_terpilih = st.session_state["dokumen_terpilih"]
         if not query_input.strip():
             st.warning("Ketikkan pertanyaan atau kata kunci terlebih dahulu.")
         elif not dokumen_terpilih:
-            st.warning("⚠️ Silakan pilih minimal 1 dokumen UU pada menu 'Filter Dokumen' di atas sebelum mencari.")
+            st.warning("⚠️ Silakan pilih minimal 1 dokumen UU di sidebar sebelah kiri sebelum mencari.")
         else:
             st.markdown("---")
             
