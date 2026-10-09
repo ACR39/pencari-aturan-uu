@@ -2,3 +2,4 @@ streamlit
 pypdf
 google-genai
 groq
+huggingface-hub
