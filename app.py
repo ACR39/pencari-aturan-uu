@@ -168,16 +168,27 @@ Aturan Ringkasan:
 2. Gunakan bahasa Indonesia baku yang mudah dipahami orang awam.
 3. Sebutkan nomor pasal atau undang-undangnya jika ada di teks.
 """
-    try:
-        client = InferenceClient(api_key=hf_key)
-        response = client.chat.completions.create(
-            model="meta-llama/Meta-Llama-3-8B-Instruct",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=300
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"⚠️ Gagal memanggil Hugging Face API: {str(e)}"
+    daftar_model_hf = [
+        "Qwen/Qwen2.5-72B-Instruct",
+        "mistralai/Mistral-7B-Instruct-v0.3",
+        "HuggingFaceH4/zephyr-7b-beta"
+    ]
+    
+    client = InferenceClient(api_key=hf_key)
+    catatan_err = []
+
+    for model_name in daftar_model_hf:
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=300
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            catatan_err.append(f"{model_name}: {str(e)}")
+
+    return f"⚠️ Gagal memanggil Hugging Face API: {'; '.join(catatan_err)}"
 
 # Memuat dokumen ke cache RAM
 data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
