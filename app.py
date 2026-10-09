@@ -20,7 +20,7 @@ st.markdown("""
         border-radius: 12px;
         color: white;
         text-align: center;
-        margin-bottom: 2rem;
+        margin-bottom: 1.5rem;
     }
     .main-header h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 0.5rem; color: #ffffff; }
     .result-card { background-color: #1a1c23; border: 1px solid #2e323e; border-radius: 10px; padding: 1.2rem; margin-bottom: 1rem; }
@@ -137,7 +137,6 @@ def cari_dari_cache_fleksibel(data_dokumen, kata_kunci_string, dokumen_terpilih,
         daftar_kata = [kata_kunci_string.lower()]
 
     for nama_file, daftar_halaman in data_dokumen.items():
-        # FILTER DOKUMEN: Hanya cari di file yang dipilih pengguna
         if nama_file not in dokumen_terpilih:
             continue
 
@@ -217,13 +216,27 @@ data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
 if not file_pdf_list:
     st.warning("⚠️ Belum ada dokumen PDF undang-undang yang diunggah ke repositori GitHub.")
 else:
-    # FITUR PILIH DOKUMEN (MULTISELECT)
-    dokumen_terpilih = st.multiselect(
-        "📄 Pilih Dokumen UU yang Ingin Ditelusuri:",
-        options=file_pdf_list,
-        default=file_pdf_list, # Secara default memilih semua dokumen
-        help="Pilih 1 atau beberapa dokumen spesifik untuk mempercepat waktu pencarian."
-    )
+    # FITUR PILIH DOKUMEN RAPI (EXPANDER & FILTER)
+    if "dokumen_terpilih" not in st.session_state:
+        st.session_state["dokumen_terpilih"] = file_pdf_list
+
+    with st.expander(f"📁 **Filter Dokumen ({len(st.session_state['dokumen_terpilih'])} dari {len(file_pdf_list)} UU Terpilih)**", expanded=False):
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            if st.button("✅ Pilih Semua Dokumen", use_container_width=True):
+                st.session_state["dokumen_terpilih"] = file_pdf_list
+                st.rerun()
+        with c2:
+            if st.button("❌ Kosongkan Pilihan", use_container_width=True):
+                st.session_state["dokumen_terpilih"] = []
+                st.rerun()
+
+        st.session_state["dokumen_terpilih"] = st.multiselect(
+            "Pilih spesifik file PDF yang ingin ditelusuri:",
+            options=file_pdf_list,
+            default=st.session_state["dokumen_terpilih"],
+            label_visibility="collapsed"
+        )
 
     with st.form(key="search_form"):
         col1, col2 = st.columns([4, 1])
@@ -235,17 +248,17 @@ else:
     gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI Relink Gateway", value=True, help="Hapus centang untuk pencarian super cepat tanpa ringkasan AI.")
 
     if tombol_cari:
+        dokumen_terpilih = st.session_state["dokumen_terpilih"]
         if not query_input.strip():
             st.warning("Ketikkan pertanyaan atau kata kunci terlebih dahulu.")
         elif not dokumen_terpilih:
-            st.warning("⚠️ Silakan pilih minimal 1 dokumen UU pada daftar di atas sebelum mencari.")
+            st.warning("⚠️ Silakan pilih minimal 1 dokumen UU pada menu 'Filter Dokumen' di atas sebelum mencari.")
         else:
             st.markdown("---")
             
             with st.spinner("🔍 Menganalisis kata kunci pertanyaan..."):
                 kata_kunci_inti = ekstraksi_kata_kunci_ai(RELINK_API_KEY, query_input)
             
-            # Memanggil pencarian hanya pada dokumen yang dicentang/dipilih
             semua_hasil, total_ditemukan, daftar_kata_list = cari_dari_cache_fleksibel(data_pdf_cached, kata_kunci_inti, dokumen_terpilih)
             
             if total_ditemukan > 0:
