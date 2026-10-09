@@ -2,7 +2,7 @@ import os
 import re
 import streamlit as st
 from pypdf import PdfReader
-from huggingface_hub import InferenceClient
+from groq import Groq
 
 st.set_page_config(
     page_title="Pencari UU Online",
@@ -46,7 +46,7 @@ def ambil_secret(nama_key):
     except Exception:
         return os.environ.get(nama_key, "")
 
-HF_API_KEY = ambil_secret("HUGGINGFACE_API_KEY")
+GROQ_API_KEY = ambil_secret("GROQ_API_KEY")
 
 # Sidebar & Indeks File
 with st.sidebar:
@@ -58,8 +58,8 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### 🤖 Pengaturan AI")
-    if not HF_API_KEY:
-        HF_API_KEY = st.text_input("Hugging Face API Token", type="password")
+    if not GROQ_API_KEY:
+        GROQ_API_KEY = st.text_input("Groq API Key", type="password")
         
     st.markdown("---")
     st.markdown("### 📜 Daftar File Aktif & Unduh:")
@@ -144,8 +144,8 @@ def cari_dari_cache_kontekstual(data_dokumen, kata_kunci, window=2):
             
     return semua_hasil, total_ditemukan
 
-def buat_ringkasan_hf(hf_key, kata_kunci, semua_hasil):
-    """Ringkasan AI 100% Gratis menggunakan Hugging Face Inference Client."""
+def buat_ringkasan_groq(groq_key, kata_kunci, semua_hasil):
+    """Ringkasan AI 100% Gratis dan Super Cepat menggunakan Groq Llama 3.1."""
     konteks_gabungan = ""
     count = 0
     for item in semua_hasil:
@@ -168,27 +168,16 @@ Aturan Ringkasan:
 2. Gunakan bahasa Indonesia baku yang mudah dipahami orang awam.
 3. Sebutkan nomor pasal atau undang-undangnya jika ada di teks.
 """
-    daftar_model_hf = [
-        "Qwen/Qwen2.5-7B-Instruct",
-        "Qwen/Qwen2.5-Coder-7B-Instruct",
-        "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
-    ]
-    
-    client = InferenceClient(api_key=hf_key)
-    catatan_err = []
-
-    for model_name in daftar_model_hf:
-        try:
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            catatan_err.append(f"{model_name}: {str(e)}")
-
-    return f"⚠️ Gagal memanggil Hugging Face API: {'; '.join(catatan_err)}"
+    try:
+        client = Groq(api_key=groq_key)
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"⚠️ Gagal memanggil Groq API: {str(e)}"
 
 # Memuat dokumen ke cache RAM
 data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
@@ -203,7 +192,7 @@ else:
         with col2:
             tombol_cari = st.form_submit_button("🔍 Cari", type="primary", use_container_width=True)
             
-    gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI Hugging Face", value=True, help="Hapus centang untuk pencarian super cepat tanpa ringkasan AI.")
+    gunakan_ai = st.checkbox("✨ Aktifkan Ringkasan AI Groq", value=True, help="Hapus centang untuk pencarian super cepat tanpa ringkasan AI.")
 
     if tombol_cari:
         if not query_input.strip():
@@ -219,17 +208,17 @@ else:
                     st.caption(f"💡 *Menampilkan hasil pencarian untuk istilah inti:* **'{kata_kunci}'**")
                 
                 if gunakan_ai:
-                    if HF_API_KEY:
-                        with st.spinner("🤖 AI Hugging Face sedang menyusun ringkasan..."):
-                            ringkasan_ai = buat_ringkasan_hf(HF_API_KEY, kata_kunci, semua_hasil)
+                    if GROQ_API_KEY:
+                        with st.spinner("🤖 AI Groq sedang menyusun ringkasan..."):
+                            ringkasan_ai = buat_ringkasan_groq(GROQ_API_KEY, kata_kunci, semua_hasil)
                             st.markdown(f"""
                                 <div class="ai-box">
-                                    <h3>✨ Ringkasan AI Hugging Face untuk "{kata_kunci}"</h3>
+                                    <h3>✨ Ringkasan AI Groq untuk "{kata_kunci}"</h3>
                                     <p>{ringkasan_ai}</p>
                                 </div>
                             """, unsafe_allow_html=True)
                     else:
-                        st.info("💡 *Tips: Masukkan Hugging Face API Token di sidebar untuk mendapatkan ringkasan kilat dari AI!*")
+                        st.info("💡 *Tips: Masukkan Groq API Key di sidebar untuk mendapatkan ringkasan kilat dari AI!*")
 
                 st.success(f"⚡ Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen**.")
                 for item in semua_hasil:
