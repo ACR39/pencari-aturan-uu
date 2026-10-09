@@ -89,33 +89,55 @@ def muat_semua_dokumen_pdf(folder_path):
                     pass
     return data_dokumen
 
-def ekstrak_kata_kunci_fleksibel(query):
-    stop_words = [
-        r"apa itu", r"apa yang dimaksud dengan", r"apakah yang dimaksud dengan",
-        r"apa yang dimaksud", r"jelaskan tentang", r"jelaskan", r"sebutkan", 
-        r"penjelasan tentang", r"pengertian dari", r"pengertian", r"definisi"
-    ]
-    query_bersih = query.strip()
-    for word in stop_words:
-        query_bersih = re.sub(rf"^{word}\s+", "", query_bersih, flags=re.IGNORECASE)
-    query_bersih = re.sub(r"\?+$", "", query_bersih).strip()
-    return query_bersih
+def ekstraksi_kata_kunci_ai(relink_key, query_pengguna):
+    """Menggunakan AI Relink untuk mengambil kata kunci inti dari kalimat pertanyaan panjang."""
+    if not relink_key or len(query_pengguna.split()) <= 2:
+        return query_pengguna.strip()
+        
+    try:
+        client = OpenAI(
+            base_url="https://api.relink-gateway.biz.id/v1",
+            api_key=relink_key
+        )
+        prompt = f'Ekstrak 1 sampai 3 kata kunci paling inti dari kalimat pertanyaan hukum berikut untuk digunakan dalam pencarian teks dokumen hukum. Hanya jawab dengan kata kunci intinya saja tanpa penjelasan tambahan.\n\nPertanyaan: "{query_pengguna}"'
+        response = client.chat.completions.create(
+            model="auto",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=20
+        )
+        hasil = response.choices[0].message.content.strip()
+        return hasil.replace('"', '').replace("'", "")
+    except Exception:
+        # Fallback manual jika API error
+        stop_words = [r"apa itu", r"apa yang dimaksud dengan", r"apakah yang dimaksud dengan", r"bagaimana aturan", r"jelaskan", r"pengertian"]
+        q = query_pengguna.strip()
+        for w in stop_words:
+            q = re.sub(rf"^{w}\s+", "", q, flags=re.IGNORECASE)
+        return q
 
 def bersihkan_teks_uu(teks):
     teks_bersih = re.sub(r'(-?\s*\d+\s*-?)*\s*[a-zA-Z0-9_]+\s*(\.|\s){2,}', '', teks)
     teks_bersih = re.sub(r'(\.|\s){3,}', ' ', teks_bersih)
     return teks_bersih.strip()
 
-def berikan_highlight(teks, kata_kunci):
-    if not kata_kunci: 
-        return teks
-    pattern = re.compile(re.escape(kata_kunci), re.IGNORECASE)
-    return pattern.sub(lambda m: f'<span class="highlight-word">{m.group(0)}</span>', teks)
+def berikan_highlight(teks, kata_kunci_list):
+    teks_hasil = teks
+    for kw in kata_kunci_list:
+        if len(kw) > 2: # Hanya highlight kata dengan panjang > 2 huruf
+            pattern = re.compile(re.escape(kw), re.IGNORECASE)
+            teks_hasil = pattern.sub(lambda m: f'<span class="highlight-word">{m.group(0)}</span>', teks_hasil)
+    return teks_hasil
 
-def cari_dari_cache_kontekstual(data_dokumen, kata_kunci, window=2):
+def cari_dari_cache_fleksibel(data_dokumen, kata_kunci_string, window=2):
+    """Pencarian kontekstual fleksibel (mencari kecocokan kata kunci)."""
     semua_hasil = []
     total_ditemukan = 0
+    # Pecah kata kunci menjadi beberapa kata terpisah untuk pencarian parsial
+    daftar_kata = [k.strip().lower() for k in re.split(r'\s+|,', kata_kunci_string) if len(k.strip()) > 2]
     
+    if not daftar_kata:
+        daftar_kata = [kata_kunci_string.lower()]
+
     for nama_file, daftar_halaman in data_dokumen.items():
         hasil_file = []
         for item in daftar_halaman:
@@ -124,17 +146,24 @@ def cari_dari_cache_kontekstual(data_dokumen, kata_kunci, window=2):
                 continue
             baris_list = [b.strip() for b in teks_halaman.split('\n') if b.strip()]
             for idx, baris in enumerate(baris_list):
-                baris_dibersihkan = bersihkan_teks_uu(baris)
-                if kata_kunci.lower() in baris_dibersihkan.lower():
+                baris_dibersihkan = bersihkan_teks_uu(baris).lower()
+                
+                # Hitung berapa banyak kata kunci yang cocok di baris ini
+                jumlah_cocok = sum(1 for kw in daftar_kata if kw in baris_dibersihkan)
+                
+                if jumlah_cocok > 0:
                     awal = max(0, idx - window)
                     akhir = min(len(baris_list), idx + window + 1)
                     blok_konteks = [bersihkan_teks_uu(b) for b in baris_list[awal:akhir] if bersihkan_teks_uu(b)]
                     hasil_file.append({
                         "halaman": item['halaman'], 
-                        "konteks": " ".join(blok_konteks)
+                        "konteks": " ".join(blok_konteks),
+                        "skor": jumlah_cocok
                     })
         
         if hasil_file:
+            # Urutkan konteks berdasarkan skor kecocokan tertinggi
+            hasil_file = sorted(hasil_file, key=lambda x: x['skor'], reverse=True)
             total_ditemukan += len(hasil_file)
             semua_hasil.append({
                 "file": nama_file, 
@@ -142,9 +171,9 @@ def cari_dari_cache_kontekstual(data_dokumen, kata_kunci, window=2):
                 "data": hasil_file
             })
             
-    return semua_hasil, total_ditemukan
+    return semua_hasil, total_ditemukan, daftar_kata
 
-def buat_ringkasan_relink(relink_key, kata_kunci, semua_hasil):
+def buat_ringkasan_relink(relink_key, pertanyaan_asli, semua_hasil):
     """Ringkasan AI menggunakan Relink Gateway."""
     konteks_gabungan = ""
     count = 0
@@ -158,23 +187,21 @@ def buat_ringkasan_relink(relink_key, kata_kunci, semua_hasil):
             break
 
     prompt = f"""
-Kamu adalah asisten hukum AI. Berdasarkan potongan ayat/pasal Undang-Undang berikut, buatlah ringkasan penjelasan yang sangat singkat, jelas, dan mudah dipahami mengenai istilah/kata kunci: "{kata_kunci}".
+Kamu adalah asisten hukum AI. Berdasarkan potongan ayat/pasal Undang-Undang berikut, jawab dan buatlah ringkasan penjelasan yang sangat singkat, jelas, dan mudah dipahami untuk pertanyaan pengguna: "{pertanyaan_asli}".
 
 Potongan Teks Hukum:
 {konteks_gabungan}
 
 Aturan Ringkasan:
-1. Tulis dalam 2-3 kalimat saja.
+1. Tulis jawaban dalam 2-3 kalimat saja.
 2. Gunakan bahasa Indonesia baku yang mudah dipahami orang awam.
 3. Sebutkan nomor pasal atau undang-undangnya jika ada di teks.
 """
     try:
-        # Hubungkan ke Relink Gateway
         client = OpenAI(
             base_url="https://api.relink-gateway.biz.id/v1",
             api_key=relink_key
         )
-        
         response = client.chat.completions.create(
             model="auto",
             messages=[{"role": "user", "content": prompt}],
@@ -193,7 +220,7 @@ else:
     with st.form(key="search_form"):
         col1, col2 = st.columns([4, 1])
         with col1:
-            query_input = st.text_input("Kata Kunci", placeholder="Ketik kalimat atau istilah (contoh: Apa itu Hak Cipta?)...", label_visibility="collapsed")
+            query_input = st.text_input("Pertanyaan / Kata Kunci", placeholder="Ketik pertanyaan atau kata kunci bebas (contoh: Bagaimana sanksi jika melanggar jam operasional?)...", label_visibility="collapsed")
         with col2:
             tombol_cari = st.form_submit_button("🔍 Cari", type="primary", use_container_width=True)
             
@@ -201,24 +228,26 @@ else:
 
     if tombol_cari:
         if not query_input.strip():
-            st.warning("Ketikkan kata kunci terlebih dahulu.")
+            st.warning("Ketikkan pertanyaan atau kata kunci terlebih dahulu.")
         else:
-            kata_kunci = ekstrak_kata_kunci_fleksibel(query_input)
             st.markdown("---")
             
-            semua_hasil, total_ditemukan = cari_dari_cache_kontekstual(data_pdf_cached, kata_kunci)
+            # Ekstraksi Kata Kunci dengan AI
+            with st.spinner("🔍 Menganalisis kata kunci pertanyaan..."):
+                kata_kunci_inti = ekstraksi_kata_kunci_ai(RELINK_API_KEY, query_input)
+            
+            semua_hasil, total_ditemukan, daftar_kata_list = cari_dari_cache_fleksibel(data_pdf_cached, kata_kunci_inti)
             
             if total_ditemukan > 0:
-                if kata_kunci.lower() != query_input.lower():
-                    st.caption(f"💡 *Menampilkan hasil pencarian untuk istilah inti:* **'{kata_kunci}'**")
+                st.caption(f"💡 *Pertanyaan:* **'{query_input}'** | *Kata kunci terdeteksi:* **'{kata_kunci_inti}'**")
                 
                 if gunakan_ai:
                     if RELINK_API_KEY:
                         with st.spinner("🤖 AI Relink Gateway sedang menyusun ringkasan..."):
-                            ringkasan_ai = buat_ringkasan_relink(RELINK_API_KEY, kata_kunci, semua_hasil)
+                            ringkasan_ai = buat_ringkasan_relink(RELINK_API_KEY, query_input, semua_hasil)
                             st.markdown(f"""
                                 <div class="ai-box">
-                                    <h3>✨ Ringkasan AI Relink untuk "{kata_kunci}"</h3>
+                                    <h3>✨ Ringkasan AI Relink untuk: "{query_input}"</h3>
                                     <p>{ringkasan_ai}</p>
                                 </div>
                             """, unsafe_allow_html=True)
@@ -233,7 +262,7 @@ else:
                                 st.download_button(label=f"📥 Unduh Dokumen Lengkap ({item['file']})", data=pdf_file, file_name=item['file'], mime="application/pdf", key=f"main_dl_{item['file']}")
                         st.markdown("<br>", unsafe_allow_html=True)
                         for detail in item['data']:
-                            konteks_highlight = berikan_highlight(detail['konteks'], kata_kunci)
+                            konteks_highlight = berikan_highlight(detail['konteks'], daftar_kata_list)
                             st.markdown(f"""
                                 <div class="result-card">
                                     <span class="file-tag">{item['file']}</span>
@@ -242,4 +271,4 @@ else:
                                 </div>
                             """, unsafe_allow_html=True)
             else:
-                st.info(f"Tidak ditemukan kata kunci **'{kata_kunci}'** di seluruh dokumen.")
+                st.info(f"Tidak ditemukan konteks yang cocok untuk pertanyaan **'{query_input}'** di seluruh dokumen.")
