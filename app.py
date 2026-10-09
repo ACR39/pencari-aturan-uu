@@ -29,6 +29,21 @@ st.markdown("""
     .context-box { background-color: #0f1117; border-left: 4px solid #ff9800; padding: 0.8rem; border-radius: 4px; margin-top: 0.6rem; font-size: 0.95rem; line-height: 1.5; color: #d1d5db; }
     .highlight-word { background-color: #ffd700; color: #000000; font-weight: bold; padding: 2px 5px; border-radius: 4px; }
     .ai-box { background-color: #1e1b4b; border: 1px solid #6366f1; border-radius: 10px; padding: 1.2rem; margin-bottom: 1.5rem; color: #e0e7ff; }
+    
+    /* Style Khusus untuk Merapikan Tombol Unduh di Sidebar */
+    [data-testid="stSidebar"] div.stDownloadButton > button {
+        justify-content: flex-start !important;
+        text-align: left !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        width: 100% !important;
+    }
+    [data-testid="stSidebar"] div.stDownloadButton > button > div {
+        justify-content: flex-start !important;
+        text-align: left !important;
+        width: 100% !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -81,17 +96,19 @@ with st.sidebar:
         )
         
     st.markdown("---")
-    st.markdown("### 🤖 Pengaturan AI")
-    if not RELINK_API_KEY:
-        RELINK_API_KEY = st.text_input("Relink API Key", type="password")
-        
-    st.markdown("---")
     st.markdown("### 📥 Unduh File PDF:")
     if file_pdf_list:
         for f in file_pdf_list:
             path_f = os.path.join(FOLDER_PENYIMPANAN, f)
             with open(path_f, "rb") as file_data:
-                st.download_button(label=f"📥 {f}", data=file_data, file_name=f, mime="application/pdf", key=f"sidebar_{f}")
+                st.download_button(
+                    label=f"📥 {f}", 
+                    data=file_data, 
+                    file_name=f, 
+                    mime="application/pdf", 
+                    key=f"sidebar_{f}",
+                    use_container_width=True
+                )
     else:
         st.caption("Belum ada file PDF di repositori.")
 
@@ -276,7 +293,7 @@ else:
                                 </div>
                             """, unsafe_allow_html=True)
                     else:
-                        st.info("💡 *Tips: Masukkan Relink API Key di sidebar untuk mendapatkan ringkasan kilat dari AI!*")
+                        st.info("💡 *Tips: Masukkan Relink API Key di Secrets untuk mendapatkan ringkasan kilat dari AI!*")
 
                 st.success(f"⚡ Ditemukan **{total_ditemukan} konteks kecocokan** dari **{len(semua_hasil)} dokumen terpilih**.")
                 for item in semua_hasil:
