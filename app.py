@@ -145,7 +145,7 @@ def cari_dari_cache_kontekstual(data_dokumen, kata_kunci, window=2):
     return semua_hasil, total_ditemukan
 
 def buat_ringkasan_groq(groq_key, kata_kunci, semua_hasil):
-    """Ringkasan AI 100% Gratis dan Super Cepat menggunakan Groq Llama 3.1."""
+    """Ringkasan AI 100% Gratis & Super Cepat menggunakan Groq GPT-OSS 20B."""
     konteks_gabungan = ""
     count = 0
     for item in semua_hasil:
@@ -168,16 +168,27 @@ Aturan Ringkasan:
 2. Gunakan bahasa Indonesia baku yang mudah dipahami orang awam.
 3. Sebutkan nomor pasal atau undang-undangnya jika ada di teks.
 """
-    try:
-        client = Groq(api_key=groq_key)
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=300
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"⚠️ Gagal memanggil Groq API: {str(e)}"
+    # Menggunakan model aktif Groq: openai/gpt-oss-20b (cadangan: openai/gpt-oss-120b)
+    daftar_model_groq = [
+        "openai/gpt-oss-20b",
+        "openai/gpt-oss-120b"
+    ]
+    
+    client = Groq(api_key=groq_key)
+    catatan_err = []
+
+    for model_name in daftar_model_groq:
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=300
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            catatan_err.append(f"{model_name}: {str(e)}")
+
+    return f"⚠️ Gagal memanggil Groq API: {'; '.join(catatan_err)}"
 
 # Memuat dokumen ke cache RAM
 data_pdf_cached = muat_semua_dokumen_pdf(FOLDER_PENYIMPANAN)
